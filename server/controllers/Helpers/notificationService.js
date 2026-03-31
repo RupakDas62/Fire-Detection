@@ -2,15 +2,24 @@ const nodemailer = require('nodemailer');
 require('dotenv').config();
 
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: "smtp.gmail.com",
+  port: 587,
+  secure: false,
   auth: {
-    user: process.env.EMAIL_USER,    // same as in sendEmail.js
+    user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
-});
+  tls: {
+    ciphers: "SSLv3",
+    rejectUnauthorized: false,
+  },
+}); 
 
 const sendNotification = async (office, message) => {
   try {
+    await transporter.verify();
+    console.log("SMTP ready");
+
     const info = await transporter.sendMail({
       from: `"Fire Alert System" <${process.env.EMAIL_USER}>`,
       to: office.email,
@@ -19,9 +28,9 @@ const sendNotification = async (office, message) => {
       html: `<b>${message}</b>`,
     });
 
-    console.log("📧 Notification email sent: %s", info.messageId);
+    console.log("📧 Email sent:", info.messageId);
   } catch (error) {
-    console.error("❌ Failed to send notification:", error.message);
+    console.error("❌ Email failed:", error.message);
   }
 };
 
