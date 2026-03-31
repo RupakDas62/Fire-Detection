@@ -1,98 +1,80 @@
+from ultralytics import YOLO
 import cv2
 import requests
 import json
-import os
-import time
-from ultralytics import YOLO
-from datetime import datetime
 import geocoder
 
-# ---------------- CONFIG ----------------
-MODEL_PATH = "./best.pt"  # change this
+# -------- CONFIG --------
+MODEL_PATH = "best.pt"
 BACKEND_URL = "http://localhost:8080/api/fire-report"
-DESCRIPTION = "🔥 Fire detected via YOLOv8 model from live webcam"
-DETECTION_THRESHOLD = 0.9  # confidence threshold
-FRAME_SAVE_PATH = "fire_frame.jpg"  # temporary image
-# ----------------------------------------
+DESCRIPTION = "🔥 Fire detected from webcam"
+FRAME_SAVE_PATH = "fire.jpg"
+# -----------------------
 
-def get_geo_location():
+def get_location():
     try:
         g = geocoder.ip('me')
         if g.ok:
-            return {
-                "type": "Point",
-                "coordinates": [g.lng, g.lat]
-            }
-    except Exception as e:
-        print("⚠️ Could not fetch geolocation:", e)
-    return {
-        "type": "Point",
-        "coordinates": [0.0, 0.0]  # fallback
-    }
+            return {"type": "Point", "coordinates": [g.lng, g.lat]}
+    except:
+        pass
+    return {"type": "Point", "coordinates": [0.0, 0.0]}
 
-def send_fire_report(image_path, location, description):
+
+def send_report(image_path, location):
     try:
-        with open(image_path, "rb") as image_file:
-            files = {'image': image_file}
+        with open(image_path, "rb") as f:
+            files = {"image": f}
             data = {
-                'description': description,
-                'location': json.dumps(location)
+                "description": DESCRIPTION,
+                "location": json.dumps(location)
             }
-            response = requests.post(BACKEND_URL, data=data, files=files)
-            print("📤 Fire report sent. Status:", response.status_code)
-            print("🧾 Response:", response.json())
+            res = requests.post(BACKEND_URL, data=data, files=files)
+            print("Report sent:", res.status_code)
     except Exception as e:
-        print("❌ Error sending report:", e)
+        print("Error:", e)
 
-def main():
-    print("🚀 Loading YOLOv8 model...")
-    model = YOLO(MODEL_PATH)
 
-    cap = cv2.VideoCapture(0)  # webcam
+# Load model
+model = YOLO(MODEL_PATH)
 
-    if not cap.isOpened():
-        print("❌ Cannot access webcam.")
-        return
+# Start webcam
+cap = cv2.VideoCapture(0)
 
-    print("✅ Webcam ready. Starting detection...")
-    already_reported = False
+if not cap.isOpened():
+    print("Camera not working. Great start.")
+    exit()
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+reported = False
 
-        results = model(frame)[0]
-        fire_detected = False
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
 
-        for box in results.boxes:
-            cls_id = int(box.cls[0])
-            conf = float(box.conf[0])
+    # Run detection
+    results = model(frame, conf=0.25)
 
-            # Assuming class 1 = fire
-            if cls_id == 1 and conf >= DETECTION_THRESHOLD:
-                fire_detected = True
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                cv2.putText(frame, f"🔥 Fire {conf:.2f}", (x1, y1 - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
+    # Draw results
+    annotated = results[0].plot()
 
-        cv2.imshow("🔥 Fire Detection", frame)
+    # Check if fire detected
+    for box in results[0].boxes:
+        cls_id = int(box.cls[0])
 
-        # Send fire report only once per session to avoid spamming
-        if fire_detected and not already_reported:
-            print("🔥 Fire detected! Preparing report...")
-            cv2.imwrite(FRAME_SAVE_PATH, frame)
-            location = get_geo_location()
-            send_fire_report(FRAME_SAVE_PATH, location, DESCRIPTION)
-            already_reported = True
+        if cls_id == 1:  # fire class
+            print("🔥 FIRE DETECTED")
 
-        # Press 'q' to quit
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+            if not reported:
+                cv2.imwrite(FRAME_SAVE_PATH, frame)
+                location = get_location()
+                send_report(FRAME_SAVE_PATH, location)
+                reported = True
 
-    cap.release()
-    cv2.destroyAllWindows()
+    cv2.imshow("Fire Detection", annotated)
 
-if __name__ == "__main__":
-    main()
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
